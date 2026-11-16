@@ -107,7 +107,7 @@ function SectionHeader({ title, subtitle, href, linkText }) {
 
 export default function DashboardPage() {
   const [data, setData] = useState(initialData);
-  const [openDeals, setOpenDeals] = useState([]);
+  const [allDeals, setAllDeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -120,8 +120,7 @@ export default function DashboardPage() {
         dashboardService.summary(),
         dealService.list({
           page: 1,
-          pageSize: 100,
-          status: "OPEN",
+          pageSize: 100,         
         }),
       ]);
 
@@ -134,7 +133,7 @@ export default function DashboardPage() {
         },
       });
 
-      setOpenDeals(deals.items || []);
+     setAllDeals(deals.items || []);
     } catch (err) {
       setError(
         err.response?.data?.error ||
@@ -149,6 +148,11 @@ export default function DashboardPage() {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  const openDeals = useMemo(
+  () => allDeals.filter((deal) => deal.status === "OPEN"),
+  [allDeals]
+);
 
   const pipeline = useMemo(() => {
     const stages = new Map();
@@ -184,17 +188,17 @@ export default function DashboardPage() {
     }
 
     return totals;
-  }, [openDeals]);
+  }, [allDeals]);
 
   const recentDeals = useMemo(
     () =>
-      [...openDeals]
+      [...allDeals]
         .sort(
           (a, b) =>
             new Date(b.createdAt) - new Date(a.createdAt)
         )
         .slice(0, 6),
-    [openDeals]
+    [allDeals]
   );
 
   if (loading) {

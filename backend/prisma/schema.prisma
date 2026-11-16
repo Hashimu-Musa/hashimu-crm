@@ -1,0 +1,278 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// Organization and authentication
+// -----------------------------------------------------------------------------
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users      User[]
+  companies  Company[]
+  contacts   Contact[]
+  deals      Deal[]
+  dealStages DealStage[]
+  activities Activity[]
+
+  @@index([createdAt])
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  firstName    String
+  lastName     String
+  email        String
+  passwordHash String
+  role         UserRole @default(SALES_REP)
+  isActive     Boolean  @default(true)
+
+  ownedCompanies Company[]  @relation("CompanyOwner")
+  ownedContacts  Contact[]  @relation("ContactOwner")
+  ownedDeals     Deal[]     @relation("DealOwner")
+  activities     Activity[]
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  // Email addresses only need to be unique inside one organization.
+  @@unique([organizationId, email])
+  @@index([organizationId, role])
+  @@index([organizationId, isActive])
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  SALES_MANAGER
+  SALES_REP
+  VIEWER
+}
+
+// -----------------------------------------------------------------------------
+// Companies and contacts
+// -----------------------------------------------------------------------------
+
+model Company {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  ownerId String?
+  owner   User?   @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  name         String
+  legalName    String?
+  website      String?
+  industry     String?
+  phone        String?
+  email        String?
+  addressLine1 String?
+  addressLine2 String?
+  city         String?
+  state        String?
+  postalCode   String?
+  country      String?
+  notes        String?
+  status       CompanyStatus @default(ACTIVE)
+
+  contacts   Contact[]
+  deals      Deal[]
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([organizationId, name])
+  @@index([organizationId, status])
+  @@index([ownerId])
+}
+
+enum CompanyStatus {
+  PROSPECT
+  ACTIVE
+  INACTIVE
+  CUSTOMER
+  CHURNED
+}
+
+model Contact {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  ownerId String?
+  owner   User?   @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  firstName   String
+  lastName    String
+  jobTitle    String?
+  email       String?
+  phone       String?
+  mobilePhone String?
+  linkedinUrl String?
+  notes       String?
+  status      ContactStatus @default(LEAD)
+  category    String?
+  dateOfBirth DateTime?
+  address     String?
+  preferredCommunicationChannel CommunicationChannel @default(WHATSAPP)
+  birthdayMessagingConsent Boolean @default(false)
+
+  deals      Deal[]     @relation("ContactDeals")
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([organizationId, lastName, firstName])
+  @@index([organizationId, email])
+  @@index([companyId])
+  @@index([ownerId])
+  @@index([organizationId, status])
+}
+
+enum ContactStatus {
+  LEAD
+  PROSPECT
+  CUSTOMER
+  INACTIVE
+}
+
+enum CommunicationChannel {
+  WHATSAPP
+  EMAIL
+  SMS
+  PHONE
+  NONE
+}
+
+// -----------------------------------------------------------------------------
+// Deals and pipeline
+// -----------------------------------------------------------------------------
+
+model DealStage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String
+  order       Int
+  probability Int     @default(0) // Percentage from 0 to 100.
+  color       String?
+  isWon       Boolean @default(false)
+  isLost      Boolean @default(false)
+
+  deals     Deal[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, name])
+  @@unique([organizationId, order])
+  @@index([organizationId, order])
+}
+
+model Deal {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  ownerId String?
+  owner   User?   @relation("DealOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  contactId String?
+  contact   Contact? @relation("ContactDeals", fields: [contactId], references: [id], onDelete: SetNull)
+
+  stageId String
+  stage   DealStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  title           String
+  description     String?
+  value           Decimal    @db.Decimal(14, 2)
+  currency        String     @default("USD")
+  expectedCloseAt DateTime?
+  closedAt        DateTime?
+  status          DealStatus @default(OPEN)
+  source          String?
+  lossReason      String?
+
+  activities Activity[]
+  createdAt  DateTime   @default(now())
+  updatedAt  DateTime   @updatedAt
+
+  @@index([organizationId, status])
+  @@index([organizationId, stageId])
+  @@index([organizationId, expectedCloseAt])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([ownerId])
+}
+
+enum DealStatus {
+  OPEN
+  WON
+  LOST
+}
+
+// -----------------------------------------------------------------------------
+// Timeline / CRM activity history
+// -----------------------------------------------------------------------------
+
+model Activity {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdById String
+  createdBy   User   @relation(fields: [createdById], references: [id], onDelete: Restrict)
+
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  contactId String?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  dealId String?
+  deal   Deal?   @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  type        ActivityType
+  subject     String
+  description String?
+  dueAt       DateTime?
+  completedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([organizationId, type])
+  @@index([organizationId, dueAt])
+  @@index([createdById])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([dealId])
+}
+
+enum ActivityType {
+  NOTE
+  TASK
+  CALL
+  EMAIL
+  WHATSAPP
+  MEETING
+  FOLLOW_UP
+}
